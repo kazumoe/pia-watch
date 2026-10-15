@@ -1,0 +1,50 @@
+name: pia-watch
+
+on:
+  schedule:
+    # ※GitHubはUTCのため、日本時間から9時間引いた値で書いています
+    # 日本時間 10:00（朝の確認＋「監視中」通知）
+    - cron: "0 1 * * *"
+    # 日本時間 10:10〜10:50
+    - cron: "10-50/10 1 * * *"
+    # 日本時間 11:00〜17:50
+    - cron: "*/10 2-8 * * *"
+    # 日本時間 18:00
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: write
+      contents: read
+    steps:
+      - name: Stop after sale period
+        id: period
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [ "$(TZ=Asia/Tokyo date +%Y%m%d)" -ge 20261023 ]; then
+            echo "受付期間が終了したため、このワークフローを停止します"
+            gh workflow disable pia-watch.yml --repo "$GITHUB_REPOSITORY"
+            echo "ended=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/checkout@v4
+        if: steps.period.outputs.ended != 'true'
+      - uses: actions/setup-python@v5
+        if: steps.period.outputs.ended != 'true'
+        with:
+          python-version: "3.12"
+      - name: Install
+        if: steps.period.outputs.ended != 'true'
+        run: |
+          pip install playwright requests
+          playwright install --with-deps chromium
+      - name: Check
+        if: steps.period.outputs.ended != 'true'
+        env:
+          NTFY_TOPIC: ${{ secrets.NTFY_TOPIC }}
+          MORNING: ${{ github.event.schedule == '0 1 * * *' }}
+        run: python pia_check.py
